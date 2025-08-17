@@ -1,62 +1,220 @@
-# Proyecto de Remediación Automática con AWS Inspector
+# EC2 Quarantine System
 
-Este proyecto de Terraform configura un sistema de seguridad automatizado en AWS. Utiliza AWS Inspector para detectar vulnerabilidades en instancias EC2 y, a través de una regla de EventBridge y una función Lambda, aísla automáticamente cualquier instancia con una vulnerabilidad de severidad alta o crítica.
+Un sistema automatizado de cuarentena para instancias EC2 basado en hallazgos de AWS GuardDuty, implementado con Terraform e infraestructura como código.
 
-## Arquitectura
+## 🎯 Descripción del Proyecto
 
-1.  **AWS Inspector:** Escanea continuamente las instancias EC2 en busca de vulnerabilidades.
-2.  **EventBridge:** Una regla detecta los "Hallazgos" (Findings) de Inspector que tienen una severidad `HIGH`, `CRITICAL` o `MEDIUM`.
-3.  **AWS Lambda:** Al activarse la regla, una función Lambda escrita en Python se ejecuta.
-4.  **Acción de Remediación:** La función Lambda cambia el grupo de seguridad de la instancia afectada a uno de "cuarentena", que no tiene tráfico de entrada ni de salida, aislando efectivamente la instancia de la red.
+Este proyecto implementa una solución de seguridad automatizada que detecta amenazas en instancias EC2 mediante AWS GuardDuty y las pone automáticamente en cuarentena para prevenir la propagación de posibles compromisos de seguridad.
 
-## Despliegue
+### Flujo de Funcionamiento
 
-Sigue estos pasos para desplegar la infraestructura usando Terraform.
+1. **Detección**: AWS GuardDuty detecta actividad sospechosa en una instancia EC2
+2. **Activación**: EventBridge captura el hallazgo de severidad alta/crítica
+3. **Cuarentena**: Lambda función modifica los grupos de seguridad de la instancia
+4. **Notificación**: Se envía una alerta por email vía SNS al administrador
 
-### 1. Inicializar Terraform
+## 🏗️ Arquitectura
 
-Debido a que se utiliza el proveedor `archive` para empaquetar el código de la función Lambda, es necesario inicializar el proyecto. Este comando descarga los proveedores necesarios.
-
-```bash
-terraform init -upgrade
+```
+GuardDuty → EventBridge → Lambda Function → EC2 Instance (Quarantine)
+                    ↓
+                  SNS Topic → Email Notification
 ```
 
-### 2. Revisar y Aplicar los Cambios
+### Componentes
 
-Este comando te mostrará un plan de ejecución con todos los recursos de AWS que se crearán, modificarán o destruirán. Revisa cuidadosamente el plan para asegurarte de que coincide con tus expectativas.
+- **VPC y Red**: Infraestructura de red aislada con subred pública
+- **EC2 Instance**: Servidor de prueba para demostrar la cuarentena
+- **GuardDuty**: Servicio de detección de amenazas
+- **EventBridge**: Orquestador de eventos basado en reglas
+- **Lambda Function**: Lógica de cuarentena automatizada
+- **SNS**: Sistema de notificaciones por email
+- **Security Groups**: Grupos de seguridad normal y de cuarentena
+
+## 📋 Requisitos Previos
+
+- [Terraform](https://www.terraform.io/downloads.html) >= 1.0
+- AWS CLI configurado con credenciales válidas
+- Un par de claves (Key Pair) existente en AWS EC2
+- Dirección de email válida para recibir notificaciones
+
+## 🚀 Instalación y Despliegue
+
+### 1. Clonar y Configurar
+
+```bash
+git clone <repository-url>
+cd ec2_quarantine
+```
+
+### 2. Configurar Variables
+
+Crea un archivo `terraform.tfvars` o exporta las variables de entorno:
+
+```hcl
+# terraform.tfvars
+aws_region         = "us-east-1"
+project_name       = "ec2-quarantine"
+notification_email = "tu-email@ejemplo.com"
+key_name          = "tu-key-pair"
+```
+
+### 3. Inicializar Terraform
+
+```bash
+terraform init
+```
+
+### 4. Revisar el Plan
+
+```bash
+terraform plan
+```
+
+### 5. Desplegar la Infraestructura
 
 ```bash
 terraform apply
 ```
 
-Cuando se te solicite, escribe `yes` para confirmar y comenzar la creación de los recursos.
+### 6. Confirmar la Suscripción de Email
 
-## Consideraciones Post-Despliegue
+Después del despliegue, recibirás un email de confirmación de AWS SNS que debes aceptar.
 
-*   **Costos:** AWS Inspector v2 y otros servicios de AWS utilizados en este proyecto incurren en costos. Revisa la documentación oficial de precios de AWS.
-*   **Proceso de "Des-cuarentena":** Este sistema automatiza el aislamiento de instancias. Para restaurar una instancia, deberás:
-    1.  Remediar la vulnerabilidad (por ejemplo, aplicando parches de seguridad).
-    2.  Manualmente, o a través de otro script, reasignar el grupo de seguridad original a la instancia EC2.
-*   **Pruebas:** Se recomienda encarecidamente probar esta configuración en un entorno de desarrollo o pruebas antes de implementarla en producción.
+## 🔧 Configuración
 
-## Pruebas de Funcionamiento
+### Variables Disponibles
 
-Para verificar que todo el sistema funciona como se espera, puedes seguir estos pasos para simular un escenario de detección y respuesta:
+| Variable | Descripción | Valor por Defecto |
+|----------|-------------|-------------------|
+| `aws_region` | Región de AWS | `us-east-1` |
+| `project_name` | Nombre del proyecto | `ec2_quarantine` |
+| `vpc_cidr_block` | CIDR de la VPC | `10.0.0.0/16` |
+| `subnet_cidr_block` | CIDR de la subred | `10.0.1.0/24` |
+| `ami_id` | ID de la AMI | `ami-0f3f13f145e66a0a3` |
+| `instance_type` | Tipo de instancia | `t2.micro` |
+| `key_name` | Nombre del Key Pair | `ec2_key` |
+| `notification_email` | Email para notificaciones | **Requerido** |
 
-1.  **Desplegar la Infraestructura**: Asegúrate de haber ejecutado `terraform apply` y que todos los recursos se hayan creado correctamente. La instancia EC2 de prueba (`user_data.sh`) está diseñada para ser vulnerable.
+### Personalización de Reglas de EventBridge
 
-2.  **Esperar el Escaneo de Inspector**: AWS Inspector V2 funciona de forma automática. Tras lanzar la instancia, Inspector la detectará y comenzará a escanearla. Esto puede tardar unos minutos.
+El sistema actualmente se activa con hallazgos de severidad 7-8 (Alta). Para modificar esto, edita el archivo `eventbridge.tf`:
 
-3.  **Verificar el Hallazgo (Finding)**:
-    *   Ve a la consola de AWS -> **Inspector**.
-    *   En la sección "Findings" (Hallazgos), deberías ver un nuevo hallazgo con severidad `HIGH` o `CRITICAL` asociado a la instancia EC2 creada por Terraform.
+```json
+"severity": [7, 8, 9] // Para incluir severidad crítica (9)
+```
 
-4.  **Confirmar la Acción de Cuarentena**:
-    *   El hallazgo anterior disparará la regla de EventBridge y ejecutará la función Lambda.
-    *   Ve a la consola de AWS -> **EC2**.
-    *   Selecciona la instancia y revisa sus **Grupos de Seguridad**. El grupo de seguridad original debería haber sido reemplazado por el grupo `quarantine-sg`, que bloquea todo el tráfico.
-    *   Revisa tu correo electrónico. Deberías haber recibido una **notificación de SNS** informando sobre la acción de cuarentena.
+## 🧪 Pruebas
 
-5.  **Limpieza de Recursos**:
-    *   Una vez completada la prueba, no olvides limpiar todos los recursos para evitar costos.
-    *   Ejecuta el comando `terraform destroy` y confirma la operación.
+### Simular un Hallazgo de GuardDuty
+
+Para probar el sistema, puedes generar tráfico sospechoso desde tu instancia EC2:
+
+```bash
+# Conectarse a la instancia
+ssh -i tu-key.pem ec2-user@<ip-publica>
+
+# Generar tráfico sospechoso (ejemplo)
+nslookup suspicious-domain.com
+```
+
+**Nota**: GuardDuty puede tardar varios minutos en generar hallazgos reales.
+
+### Verificar el Funcionamiento
+
+1. **Logs de Lambda**: Revisa los logs en CloudWatch
+2. **Estado de la Instancia**: Verifica que el grupo de seguridad cambió
+3. **Notificación**: Confirma que recibiste el email de alerta
+
+## 📁 Estructura del Proyecto
+
+```
+ec2_quarantine/
+├── README.md                  # Este archivo
+├── LICENSE                    # Licencia del proyecto
+├── .gitignore                # Archivos ignorados por Git
+├── versions.tf               # Versiones de providers
+├── variables.tf              # Definición de variables
+├── vpc.tf                    # Configuración de VPC y red
+├── security_group.tf         # Grupos de seguridad
+├── ec2.tf                    # Instancia EC2 de prueba
+├── guardduty.tf             # Configuración de GuardDuty
+├── eventbridge.tf           # Reglas de EventBridge
+├── lambda.tf                # Función Lambda y permisos
+├── sns.tf                   # Topic y suscripción SNS
+├── user_data.sh             # Script de inicialización EC2
+└── quarantine_lambda/
+    └── index.py             # Código de la función Lambda
+```
+
+## 🔒 Consideraciones de Seguridad
+
+- **Principio de Menor Privilegio**: Los permisos de IAM están configurados para el mínimo necesario
+- **Aislamiento de Red**: Las instancias en cuarentena quedan completamente aisladas
+- **Logging**: Todas las acciones se registran en CloudWatch
+- **Notificaciones**: Los administradores son notificados inmediatamente
+
+### Para Producción
+
+- Restringe los permisos de IAM a recursos específicos (no usar `*`)
+- Configura VPC Flow Logs para auditoría adicional
+- Implementa rotación automática de claves
+- Considera usar AWS Systems Manager para acceso sin SSH
+
+## 🔄 Operaciones
+
+### Restaurar una Instancia
+
+Para sacar una instancia de cuarentena:
+
+```bash
+# Obtener el ID del grupo de seguridad original
+aws ec2 describe-instances --instance-ids i-xxxxxxxxxxxxx
+
+# Restaurar el grupo de seguridad
+aws ec2 modify-instance-attribute \
+  --instance-id i-xxxxxxxxxxxxx \
+  --groups sg-xxxxxxxxx
+```
+
+### Monitoreo
+
+- **CloudWatch**: Métricas de Lambda y logs detallados
+- **GuardDuty Console**: Dashboard de hallazgos
+- **SNS**: Historial de notificaciones
+
+## 🧹 Limpieza
+
+Para destruir toda la infraestructura:
+
+```bash
+terraform destroy
+```
+
+⚠️ **Advertencia**: Esto eliminará permanentemente todos los recursos creados.
+
+## 🤝 Contribuciones
+
+Las contribuciones son bienvenidas. Por favor:
+
+1. Fork el repositorio
+2. Crea una branch para tu feature (`git checkout -b feature/AmazingFeature`)
+3. Commit tus cambios (`git commit -m 'Add AmazingFeature'`)
+4. Push a la branch (`git push origin feature/AmazingFeature`)
+5. Abre un Pull Request
+
+## 📄 Licencia
+
+Este proyecto está bajo la licencia especificada en el archivo `LICENSE`.
+
+## 📞 Soporte
+
+Para preguntas o problemas:
+
+- Abre un issue en el repositorio
+- Revisa los logs de CloudWatch para debugging
+- Consulta la documentación oficial de AWS
+
+---
+
+**Desarrollado con ❤️ para mejorar la seguridad en AWS**
