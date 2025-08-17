@@ -115,7 +115,7 @@ Para probar el sistema, puedes generar tráfico sospechoso desde tu instancia EC
 ssh -i tu-key.pem ec2-user@<ip-publica>
 
 # Generar tráfico sospechoso (ejemplo)
-nslookup suspicious-domain.com
+dig xmr.pool.minergate.com
 ```
 
 **Nota**: GuardDuty puede tardar varios minutos en generar hallazgos reales.
@@ -217,4 +217,3 @@ Para preguntas o problemas:
 
 ---
 
-**Desarrollado con ❤️ para mejorar la seguridad en AWS**
